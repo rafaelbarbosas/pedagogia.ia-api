@@ -1,0 +1,65 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+.env/
+.env.*
+
+# VS Code settings
+.vscode/
+
+# MacOS
+.DS_Store
+
+# Logs
+*.log
+
+# Python egg metadata
+*.egg-info/
+*.egg
+
+# Cache
+.cache/
+*.sqlite3
+
+# Test coverage reports
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.cache
+nosetests.xml
+*.log
+
+# MyPy
+.mypy_cache/
+
+# Pytest
+.pytest_cache/
+
+# Uvicorn / Gunicorn pid or reload files
+*.pid
+*.reload
+
+# Pip dependency logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Build
+build/
+dist/
+*.spec
+*.lock
+
+# Editor backups
+*~
+*.swp
+*.bak
+
+# System files
+Thumbs.db
