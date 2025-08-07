@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
@@ -20,7 +20,6 @@ app.add_middleware(
 class PromptRequest(BaseModel):
     prompt: str
 
-# Rota principal
 @app.post("/gerar")
 async def gerar_exercicio(data: PromptRequest):
     api_key = os.getenv("OPENAI_API_KEY")
@@ -38,14 +37,12 @@ async def gerar_exercicio(data: PromptRequest):
 Você é um assistente especializado em criar exercícios educativos para crianças de Jardim 1, 2 e 1º ano.
 Crie um exercício com base no seguinte pedido do professor:
 
-"${data.prompt}"
-
----
+"{data.prompt}"
 
 - A resposta deve ser em PORTUGUES BRASILEIRO
-- OMITA o início das conversas ("Claro", "aqui está...") e o fim ("este é...").
-- DESCREVA bem a atividade. Se possível, adicione contexto e bibliografia.
-    """.strip()
+- OMITA o início das conversas e o fim
+- DESCREVA bem a atividade, com contexto e bibliografia.
+""".strip()
 
     body = {
         "model": "gpt-4",
