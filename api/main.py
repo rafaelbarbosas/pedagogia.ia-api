@@ -1,9 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import asyncpg
 import httpx
 import os
 from dotenv import load_dotenv
+from typing import Literal, Optional
 
 load_dotenv()
 
@@ -19,6 +21,27 @@ app.add_middleware(
 
 class PromptRequest(BaseModel):
     prompt: str
+
+class FeedbackRequest(BaseModel):
+    prompt: str
+    serie: str
+    resposta: str
+    utilidade: Literal["util", "nao_util"]
+    comentario: Optional[str] = None
+
+@app.on_event("startup")
+async def startup():
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        app.state.db_pool = await asyncpg.create_pool(dsn=database_url, min_size=1, max_size=5)
+    else:
+        app.state.db_pool = None
+
+@app.on_event("shutdown")
+async def shutdown():
+    db_pool = getattr(app.state, "db_pool", None)
+    if db_pool:
+        await db_pool.close()
 
 @app.post("/gerar")
 async def gerar_exercicio(data: PromptRequest):
@@ -63,3 +86,25 @@ Crie um exercício com base no seguinte pedido do professor:
     return {
         "resposta": data["choices"][0]["message"]["content"].strip()
     }
+
+@app.post("/feedback")
+async def enviar_feedback(data: FeedbackRequest):
+    db_pool = getattr(app.state, "db_pool", None)
+    if not db_pool:
+        raise HTTPException(status_code=500, detail="Banco de dados não configurado.")
+
+    query = """
+        insert into feedback (prompt, serie, resposta, utilidade, comentario)
+        values ($1, $2, $3, $4, $5)
+    """
+    async with db_pool.acquire() as connection:
+        await connection.execute(
+            query,
+            data.prompt,
+            data.serie,
+            data.resposta,
+            data.utilidade,
+            data.comentario,
+        )
+
+    return {"status": "ok"}
