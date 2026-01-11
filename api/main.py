@@ -53,10 +53,12 @@ async def shutdown():
 
 @app.post("/gerar")
 async def gerar_exercicio(data: PromptRequest):
+    logger.info("Entrada /gerar: prompt=%s", data.prompt)
     api_key = os.getenv("OPENAI_API_KEY")
     api_url = os.getenv("OPENAI_API_URL")
 
     if not api_key:
+        logger.error("Erro /gerar: API key não configurada.")
         raise HTTPException(status_code=500, detail="API key não configurada.")
 
     headers = {
@@ -100,14 +102,23 @@ Crie um exercício com base no seguinte pedido do professor:
         raise HTTPException(status_code=response.status_code, detail=response.text)
 
     data = response.json()
+    resposta = data["choices"][0]["message"]["content"].strip()
+    logger.info("Sucesso /gerar")
     return {
-        "resposta": data["choices"][0]["message"]["content"].strip()
+        "resposta": resposta
     }
 
 @app.post("/feedback")
 async def enviar_feedback(data: FeedbackRequest):
+    logger.info(
+        "Entrada /feedback: prompt=%s serie=%s utilidade=%s",
+        data.prompt,
+        data.serie,
+        data.utilidade,
+    )
     db_pool = getattr(app.state, "db_pool", None)
     if not db_pool:
+        logger.error("Erro /feedback: Banco de dados não configurado.")
         raise HTTPException(status_code=500, detail="Banco de dados não configurado.")
 
     query = """
@@ -128,4 +139,5 @@ async def enviar_feedback(data: FeedbackRequest):
         logger.exception("Erro ao inserir feedback no banco")
         raise HTTPException(status_code=500, detail="Erro ao salvar feedback.") from exc
 
+    logger.info("Sucesso /feedback")
     return {"status": "ok"}
