@@ -19,6 +19,30 @@ allow_origins = [
     if origin.strip()
 ]
 
+def resolve_database_url() -> Optional[str]:
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return database_url
+
+    prefix = os.getenv("DATABASE_URL_PREFIX")
+    if prefix:
+        for env_name in (f"{prefix}DATABASE_URL", f"{prefix}_DATABASE_URL"):
+            prefixed_url = os.getenv(env_name)
+            if prefixed_url:
+                logger.info("Usando DATABASE_URL a partir de %s", env_name)
+                return prefixed_url
+
+    prefixed_urls = [
+        value
+        for name, value in os.environ.items()
+        if name.endswith("_DATABASE_URL") and value
+    ]
+    if len(prefixed_urls) == 1:
+        logger.info("Usando DATABASE_URL a partir da única *_DATABASE_URL disponível.")
+        return prefixed_urls[0]
+
+    return None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
@@ -39,7 +63,7 @@ class FeedbackRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup():
-    database_url = os.getenv("DATABASE_URL")
+    database_url = resolve_database_url()
     if database_url:
         app.state.db_pool = await asyncpg.create_pool(dsn=database_url, min_size=1, max_size=5)
     else:
