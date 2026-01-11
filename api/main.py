@@ -4,16 +4,24 @@ from pydantic import BaseModel
 import asyncpg
 import httpx
 import os
+import logging
 from dotenv import load_dotenv
 from typing import Literal, Optional
 
 load_dotenv()
 
 app = FastAPI()
+logger = logging.getLogger("pedagogia.api")
+
+allow_origins = [
+    origin.strip()
+    for origin in os.getenv("ALLOW_ORIGINS", "").split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("ALLOW_ORIGINS")],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,10 +84,19 @@ Crie um exercício com base no seguinte pedido do professor:
         "temperature": 0.7
     }
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
-        response = await client.post(api_url, headers=headers, json=body)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+            response = await client.post(api_url, headers=headers, json=body)
+    except httpx.HTTPError as exc:
+        logger.exception("Erro ao chamar OpenAI API")
+        raise HTTPException(status_code=502, detail="Falha ao chamar OpenAI API.") from exc
 
     if response.status_code != 200:
+        logger.error(
+            "Resposta OpenAI API inesperada: status=%s body=%s",
+            response.status_code,
+            response.text,
+        )
         raise HTTPException(status_code=response.status_code, detail=response.text)
 
     data = response.json()
@@ -97,14 +114,18 @@ async def enviar_feedback(data: FeedbackRequest):
         insert into feedback (prompt, serie, resposta, utilidade, comentario)
         values ($1, $2, $3, $4, $5)
     """
-    async with db_pool.acquire() as connection:
-        await connection.execute(
-            query,
-            data.prompt,
-            data.serie,
-            data.resposta,
-            data.utilidade,
-            data.comentario,
-        )
+    try:
+        async with db_pool.acquire() as connection:
+            await connection.execute(
+                query,
+                data.prompt,
+                data.serie,
+                data.resposta,
+                data.utilidade,
+                data.comentario,
+            )
+    except asyncpg.PostgresError as exc:
+        logger.exception("Erro ao inserir feedback no banco")
+        raise HTTPException(status_code=500, detail="Erro ao salvar feedback.") from exc
 
     return {"status": "ok"}
