@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import asyncpg
@@ -50,6 +50,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/favicon.ico")
+async def favicon():
+    svg_icon = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+        "<rect width='64' height='64' rx='12' fill='#2563eb'/>"
+        "<path d='M20 44V20h24v6H28v6h14v6H28v6z' fill='#ffffff'/>"
+        "</svg>"
+    )
+    return Response(content=svg_icon, media_type="image/svg+xml")
 
 class PromptRequest(BaseModel):
     prompt: str
