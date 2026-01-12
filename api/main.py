@@ -402,6 +402,24 @@ async def alterar_senha(data: ChangePasswordRequest):
     logger.info("Sucesso /auth/change-password")
     return response
 
+@app.get("/auth/me")
+async def obter_usuario_logado(authorization: Optional[str] = Header(None)):
+    logger.info("Entrada /auth/me")
+    access_token = extract_bearer_token(authorization)
+    user = await get_verified_user(access_token)
+    logger.info("Buscando perfil do usuário %s.", user["id"])
+    profile_response = await supabase_request(
+        "GET",
+        f"/rest/v1/profiles?id=eq.{user['id']}&limit=1",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    profile = profile_response[0] if isinstance(profile_response, list) and profile_response else None
+    logger.info("Sucesso /auth/me")
+    return {
+        "user": user,
+        "profile": profile,
+    }
+
 @app.put("/auth/profile")
 async def atualizar_perfil(data: UpdateProfileRequest):
     logger.info("Entrada /auth/profile")
