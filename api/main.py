@@ -158,11 +158,15 @@ def resolve_supabase_url() -> Optional[str]:
     return url
 
 def resolve_supabase_anon_key() -> Optional[str]:
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if key:
+        logger.debug("SUPABASE_SERVICE_ROLE_KEY encontrada.")
+        return key
     key = os.getenv("SUPABASE_ANON_KEY")
     if key:
         logger.debug("SUPABASE_ANON_KEY encontrada.")
     else:
-        logger.warning("SUPABASE_ANON_KEY não configurada.")
+        logger.warning("SUPABASE_SERVICE_ROLE_KEY e SUPABASE_ANON_KEY não configuradas.")
     return key
 
 def resolve_client_ip(request: Request) -> str:
