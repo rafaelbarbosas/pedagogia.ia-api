@@ -21,31 +21,13 @@ allow_origins = [
 ]
 
 def resolve_database_url() -> Optional[str]:
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        logger.info("DATABASE_URL encontrada no ambiente.")
-        return database_url
+    supabase_url = os.getenv("SUPABASE_URL")
+    if supabase_url:
+        logger.info("Usando SUPABASE_URL como DATABASE_URL.")
+        return supabase_url
 
-    prefix = os.getenv("DATABASE_URL_PREFIX")
-    if prefix:
-        logger.info("Buscando DATABASE_URL com prefixo %s.", prefix)
-        for env_name in (f"{prefix}DATABASE_URL", f"{prefix}_DATABASE_URL"):
-            prefixed_url = os.getenv(env_name)
-            if prefixed_url:
-                logger.info("Usando DATABASE_URL a partir de %s", env_name)
-                return prefixed_url
-
-    prefixed_urls = [
-        value
-        for name, value in os.environ.items()
-        if name.endswith("_DATABASE_URL") and value
-    ]
-    if len(prefixed_urls) == 1:
-        logger.info("Usando DATABASE_URL a partir da única *_DATABASE_URL disponível.")
-        return prefixed_urls[0]
-
-    logger.warning("Nenhuma DATABASE_URL encontrada.")
-    return None
+    logger.error("SUPABASE_URL não configurada.")
+    raise HTTPException(status_code=500, detail="SUPABASE_URL não configurada.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -347,28 +329,30 @@ async def enviar_feedback(data: FeedbackRequest):
         data.serie,
         data.utilidade,
     )
-    db_pool = getattr(app.state, "db_pool", None)
-    if not db_pool:
-        logger.error("Erro /feedback: Banco de dados não configurado.")
-        raise HTTPException(status_code=500, detail="Banco de dados não configurado.")
-
-    query = """
-        insert into feedback (prompt, serie, resposta, utilidade, comentario)
-        values ($1, $2, $3, $4, $5)
-    """
     try:
         logger.info("Salvando feedback no banco.")
-        async with db_pool.acquire() as connection:
-            await connection.execute(
-                query,
-                data.prompt,
-                data.serie,
-                data.resposta,
-                data.utilidade,
-                data.comentario,
-            )
-    except asyncpg.PostgresError as exc:
-        logger.exception("Erro ao inserir feedback no banco")
+        payload = {
+            "prompt": data.prompt,
+            "serie": data.serie,
+            "resposta": data.resposta,
+            "utilidade": data.utilidade,
+            "comentario": data.comentario,
+        }
+        supabase_key = resolve_supabase_anon_key()
+        if not supabase_key:
+            logger.error("Erro /feedback: Supabase não configurado.")
+            raise HTTPException(status_code=500, detail="Supabase não configurado.")
+        await supabase_request(
+            "POST",
+            "/rest/v1/feedback",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {supabase_key}",
+                "Prefer": "return=minimal",
+            },
+        )
+    except HTTPException as exc:
+        logger.exception("Erro ao inserir feedback no Supabase")
         raise HTTPException(status_code=500, detail="Erro ao salvar feedback.") from exc
 
     logger.info("Sucesso /feedback")
