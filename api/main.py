@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response, Header
+from fastapi import FastAPI, HTTPException, Response, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import asyncpg
@@ -144,6 +144,25 @@ def resolve_supabase_url() -> Optional[str]:
 def resolve_supabase_anon_key() -> Optional[str]:
     return os.getenv("SUPABASE_ANON_KEY")
 
+def resolve_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+async def is_logged_user(authorization: Optional[str]) -> bool:
+    if not authorization:
+        return False
+    try:
+        access_token = extract_bearer_token(authorization)
+        await get_verified_user(access_token)
+    except HTTPException:
+        logger.info("Token inválido recebido em /gerar.")
+        return False
+    return True
+
 async def supabase_request(method: str, path: str, *, json: Optional[dict] = None, headers: Optional[dict] = None):
     supabase_url = resolve_supabase_url()
     supabase_key = resolve_supabase_anon_key()
@@ -189,10 +208,33 @@ async def shutdown():
         await db_pool.close()
 
 @app.post("/gerar")
-async def gerar_exercicio(data: PromptRequest):
+async def gerar_exercicio(
+    data: PromptRequest,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
     logger.info("Entrada /gerar: prompt=%s", data.prompt)
     api_key = os.getenv("OPENAI_API_KEY")
     api_url = os.getenv("OPENAI_API_URL")
+    logged_user = await is_logged_user(authorization)
+    if not logged_user:
+        db_pool = getattr(app.state, "db_pool", None)
+        if not db_pool:
+            logger.error("Erro /gerar: Banco de dados não configurado.")
+            raise HTTPException(status_code=500, detail="Banco de dados não configurado.")
+        client_ip = resolve_client_ip(request)
+        query = """
+            select count(*)
+            from anonymous_requests
+            where ip = $1
+              and route = '/gerar'
+              and requested_at::date = current_date
+        """
+        async with db_pool.acquire() as connection:
+            usage = await connection.fetchval(query, client_ip)
+        if usage >= 3:
+            logger.warning("Limite /gerar excedido para ip=%s", client_ip)
+            raise HTTPException(status_code=429, detail="Limite de uso atingido para este IP.")
 
     if not api_key:
         logger.error("Erro /gerar: API key não configurada.")
@@ -240,6 +282,13 @@ Crie um exercício com base no seguinte pedido do professor:
 
     data = response.json()
     resposta = data["choices"][0]["message"]["content"].strip()
+    if not logged_user:
+        insert_query = """
+            insert into anonymous_requests (ip, route)
+            values ($1, '/gerar')
+        """
+        async with db_pool.acquire() as connection:
+            await connection.execute(insert_query, client_ip)
     logger.info("Sucesso /gerar")
     return {
         "resposta": resposta

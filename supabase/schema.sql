@@ -33,6 +33,16 @@ create table if not exists public.activities (
   updated_at timestamp with time zone default now()
 );
 
+create table if not exists public.anonymous_requests (
+  id uuid primary key default gen_random_uuid(),
+  ip text not null,
+  route text not null,
+  requested_at timestamp with time zone default now()
+);
+
+create index if not exists idx_anonymous_requests_ip_route_date
+  on public.anonymous_requests (ip, route, requested_at);
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
