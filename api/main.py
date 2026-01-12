@@ -1,12 +1,13 @@
 from fastapi import FastAPI, HTTPException, Response, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import asyncpg
 import httpx
 import os
 import logging
+from datetime import date, timedelta
 from dotenv import load_dotenv
 from typing import Literal, Optional
+from urllib.parse import urlencode
 
 load_dotenv()
 
@@ -19,28 +20,6 @@ allow_origins = [
     for origin in os.getenv("ALLOW_ORIGINS", "").split(",")
     if origin.strip()
 ]
-
-def resolve_database_url() -> Optional[str]:
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        logger.info("Usando DATABASE_URL para conexão com banco.")
-        return database_url
-
-    supabase_db_url = os.getenv("SUPABASE_DB_URL")
-    if supabase_db_url:
-        logger.info("Usando SUPABASE_DB_URL para conexão com banco.")
-        return supabase_db_url
-
-    supabase_url = os.getenv("SUPABASE_URL")
-    if supabase_url:
-        logger.error("SUPABASE_URL possui esquema HTTP e não é compatível com o banco.")
-        raise HTTPException(
-            status_code=500,
-            detail="SUPABASE_URL inválida para banco. Configure DATABASE_URL ou SUPABASE_DB_URL.",
-        )
-
-    logger.error("DATABASE_URL não configurada.")
-    raise HTTPException(status_code=500, detail="DATABASE_URL não configurada.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -188,6 +167,14 @@ async def is_logged_user(authorization: Optional[str]) -> bool:
     return True
 
 async def supabase_request(method: str, path: str, *, json: Optional[dict] = None, headers: Optional[dict] = None):
+    response = await supabase_request_raw(method, path, json=json, headers=headers)
+    if response.text:
+        logger.debug("Resposta Supabase com corpo JSON.")
+        return response.json()
+    logger.debug("Resposta Supabase sem corpo.")
+    return {}
+
+async def supabase_request_raw(method: str, path: str, *, json: Optional[dict] = None, headers: Optional[dict] = None):
     supabase_url = resolve_supabase_url()
     supabase_key = resolve_supabase_anon_key()
     if not supabase_url or not supabase_key:
@@ -214,29 +201,37 @@ async def supabase_request(method: str, path: str, *, json: Optional[dict] = Non
         logger.error("Erro Supabase: status=%s body=%s", response.status_code, response.text)
         raise HTTPException(status_code=response.status_code, detail=response.text)
 
-    if response.text:
-        logger.debug("Resposta Supabase com corpo JSON.")
-        return response.json()
-    logger.debug("Resposta Supabase sem corpo.")
-    return {}
+    return response
+
+async def count_anonymous_requests(client_ip: str, route: str) -> int:
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    params = [
+        ("select", "id"),
+        ("ip", f"eq.{client_ip}"),
+        ("route", f"eq.{route}"),
+        ("requested_at", f"gte.{today.isoformat()}"),
+        ("requested_at", f"lt.{tomorrow.isoformat()}"),
+        ("limit", "1"),
+    ]
+    path = f"/rest/v1/anonymous_requests?{urlencode(params)}"
+    response = await supabase_request_raw(
+        "GET",
+        path,
+        headers={"Prefer": "count=exact"},
+    )
+    content_range = response.headers.get("content-range", "")
+    if "/" in content_range:
+        try:
+            return int(content_range.split("/")[-1])
+        except ValueError:
+            logger.warning("Content-Range inválido: %s", content_range)
+    data = response.json()
+    return len(data)
 
 @app.on_event("startup")
 async def startup():
     logger.info("Inicializando aplicação.")
-    database_url = resolve_database_url()
-    if database_url:
-        logger.info("Criando pool de conexões com banco.")
-        app.state.db_pool = await asyncpg.create_pool(dsn=database_url, min_size=1, max_size=5)
-    else:
-        app.state.db_pool = None
-
-@app.on_event("shutdown")
-async def shutdown():
-    logger.info("Encerrando aplicação.")
-    db_pool = getattr(app.state, "db_pool", None)
-    if db_pool:
-        logger.info("Fechando pool de conexões com banco.")
-        await db_pool.close()
 
 @app.post("/gerar")
 async def gerar_exercicio(
@@ -250,21 +245,9 @@ async def gerar_exercicio(
     logged_user = await is_logged_user(authorization)
     if not logged_user:
         logger.info("Usuário anônimo; verificando limite diário.")
-        db_pool = getattr(app.state, "db_pool", None)
-        if not db_pool:
-            logger.error("Erro /gerar: Banco de dados não configurado.")
-            raise HTTPException(status_code=500, detail="Banco de dados não configurado.")
         client_ip = resolve_client_ip(request)
         logger.info("IP identificado para controle de uso: %s", client_ip)
-        query = """
-            select count(*)
-            from anonymous_requests
-            where ip = $1
-              and route = '/gerar'
-              and requested_at::date = current_date
-        """
-        async with db_pool.acquire() as connection:
-            usage = await connection.fetchval(query, client_ip)
+        usage = await count_anonymous_requests(client_ip, "/gerar")
         logger.info("Uso diário atual para %s: %s", client_ip, usage)
         if usage >= 3:
             logger.warning("Limite /gerar excedido para ip=%s", client_ip)
@@ -323,12 +306,8 @@ Crie um exercício com base no seguinte pedido do professor:
     resposta = data["choices"][0]["message"]["content"].strip()
     if not logged_user:
         logger.info("Registrando uso anônimo no banco.")
-        insert_query = """
-            insert into anonymous_requests (ip, route)
-            values ($1, '/gerar')
-        """
-        async with db_pool.acquire() as connection:
-            await connection.execute(insert_query, client_ip)
+        payload = {"ip": client_ip, "route": "/gerar"}
+        await supabase_request("POST", "/rest/v1/anonymous_requests", json=payload)
     logger.info("Sucesso /gerar")
     return {
         "resposta": resposta
