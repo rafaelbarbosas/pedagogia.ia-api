@@ -64,3 +64,4 @@ dist/
 
 # System files
 Thumbs.db
+.vercel

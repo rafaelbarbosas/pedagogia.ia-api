@@ -54,10 +54,22 @@ app.add_middleware(
 @app.get("/favicon.ico")
 async def favicon():
     svg_icon = (
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
-        "<rect width='64' height='64' rx='12' fill='#2563eb'/>"
-        "<path d='M20 44V20h24v6H28v6h14v6H28v6z' fill='#ffffff'/>"
-        "</svg>"
+    """
+    <svg width='128' height='128' viewBox='0 0 256 256' fill='none' xmlns='http://www.w3.org/2000/svg'>
+    <defs>
+        <linearGradient id='bg' x1='36' y1='20' x2='220' y2='236' gradientUnits='userSpaceOnUse'>
+        <stop offset='0' stop-color='#3B82F6' />
+        <stop offset='0.5' stop-color='#60A5FA' />
+        <stop offset='1' stop-color='#F59E0B' />
+        </linearGradient>
+    </defs>
+    <rect x='16' y='16' width='224' height='224' rx='48' fill='url(#bg)' />
+    <g fill='#FFFFFF'>
+        <path d='M128 60L44 92l84 30 84-30-84-32Z' />
+        <path d='M76 116v30c0 6 4 12 10 14l36 12c4 2 8 2 12 0l36-12c6-2 10-8 10-14v-30l-52 18-52-18Z' />
+    </g>
+    </svg>
+    """
     )
     return Response(content=svg_icon, media_type="image/svg+xml")
 
