@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import asyncpg
@@ -109,6 +109,34 @@ class UpdateProfileRequest(BaseModel):
     endereco: Optional[str] = None
     colegio: Optional[str] = None
     foto_perfil: Optional[str] = None
+
+class ActivityCreateRequest(BaseModel):
+    prompt: str
+    atividade_gerada: str
+    compartilhar: bool = False
+
+class ActivityUpdateRequest(BaseModel):
+    prompt: Optional[str] = None
+    atividade_gerada: Optional[str] = None
+    compartilhar: Optional[bool] = None
+
+def extract_bearer_token(authorization: Optional[str]) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Token ausente.")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token inválido.")
+    return authorization.removeprefix("Bearer ").strip()
+
+async def get_verified_user(access_token: str) -> dict:
+    headers = {"Authorization": f"Bearer {access_token}"}
+    user = await supabase_request("GET", "/auth/v1/user", headers=headers)
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token inválido.")
+    email_verified = bool(user.get("email_confirmed_at") or user.get("confirmed_at"))
+    if not email_verified:
+        raise HTTPException(status_code=403, detail="Email não verificado.")
+    return user
 
 def resolve_supabase_url() -> Optional[str]:
     return os.getenv("SUPABASE_URL")
@@ -329,3 +357,87 @@ async def atualizar_perfil(data: UpdateProfileRequest):
     )
     logger.info("Sucesso /auth/profile")
     return response
+
+@app.post("/activities")
+async def salvar_atividade(
+    data: ActivityCreateRequest,
+    authorization: Optional[str] = Header(None),
+):
+    logger.info("Entrada /activities (POST)")
+    access_token = extract_bearer_token(authorization)
+    user = await get_verified_user(access_token)
+    payload = {
+        "user_id": user["id"],
+        "prompt": data.prompt,
+        "atividade_gerada": data.atividade_gerada,
+        "compartilhar": data.compartilhar,
+    }
+    response = await supabase_request(
+        "POST",
+        "/rest/v1/activities",
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Prefer": "return=representation",
+        },
+    )
+    logger.info("Sucesso /activities (POST)")
+    return response[0] if isinstance(response, list) and response else response
+
+@app.get("/activities")
+async def listar_atividades(authorization: Optional[str] = Header(None)):
+    logger.info("Entrada /activities (GET)")
+    access_token = extract_bearer_token(authorization)
+    user = await get_verified_user(access_token)
+    response = await supabase_request(
+        "GET",
+        f"/rest/v1/activities?user_id=eq.{user['id']}&order=created_at.desc",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    logger.info("Sucesso /activities (GET)")
+    return response
+
+@app.put("/activities/{activity_id}")
+async def editar_atividade(
+    activity_id: str,
+    data: ActivityUpdateRequest,
+    authorization: Optional[str] = Header(None),
+):
+    logger.info("Entrada /activities/%s (PUT)", activity_id)
+    access_token = extract_bearer_token(authorization)
+    user = await get_verified_user(access_token)
+    updates = {
+        "prompt": data.prompt,
+        "atividade_gerada": data.atividade_gerada,
+        "compartilhar": data.compartilhar,
+    }
+    updates = {key: value for key, value in updates.items() if value is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nenhum dado para atualizar.")
+    response = await supabase_request(
+        "PATCH",
+        f"/rest/v1/activities?id=eq.{activity_id}&user_id=eq.{user['id']}",
+        json=updates,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Prefer": "return=representation",
+        },
+    )
+    logger.info("Sucesso /activities/%s (PUT)", activity_id)
+    return response[0] if isinstance(response, list) and response else response
+
+@app.delete("/activities/{activity_id}")
+async def deletar_atividade(
+    activity_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    logger.info("Entrada /activities/%s (DELETE)", activity_id)
+    access_token = extract_bearer_token(authorization)
+    user = await get_verified_user(access_token)
+    await supabase_request(
+        "DELETE",
+        f"/rest/v1/activities?id=eq.{activity_id}&user_id=eq.{user['id']}",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    logger.info("Sucesso /activities/%s (DELETE)", activity_id)
+    return {"status": "ok"}
