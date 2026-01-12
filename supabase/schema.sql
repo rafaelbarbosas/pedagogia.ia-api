@@ -43,6 +43,16 @@ create table if not exists public.anonymous_requests (
 create index if not exists idx_anonymous_requests_ip_route_date
   on public.anonymous_requests (ip, route, requested_at);
 
+create table if not exists public.feedback (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamp with time zone not null default now(),
+  prompt text not null,
+  serie text not null,
+  resposta text not null,
+  utilidade text not null,
+  comentario text
+);
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
