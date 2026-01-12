@@ -83,6 +83,69 @@ class FeedbackRequest(BaseModel):
     utilidade: Literal["util", "nao_util"]
     comentario: Optional[str] = None
 
+class RegisterRequest(BaseModel):
+    email: str
+    senha: str
+    nome: str
+    endereco: Optional[str] = None
+    colegio: Optional[str] = None
+    foto_perfil: Optional[str] = None
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+    tipo: Literal["signup", "invite", "magiclink", "recovery", "email_change"] = "signup"
+
+class LoginRequest(BaseModel):
+    email: str
+    senha: str
+
+class ChangePasswordRequest(BaseModel):
+    access_token: str
+    nova_senha: str
+
+class UpdateProfileRequest(BaseModel):
+    access_token: str
+    nome: Optional[str] = None
+    endereco: Optional[str] = None
+    colegio: Optional[str] = None
+    foto_perfil: Optional[str] = None
+
+def resolve_supabase_url() -> Optional[str]:
+    return os.getenv("SUPABASE_URL")
+
+def resolve_supabase_anon_key() -> Optional[str]:
+    return os.getenv("SUPABASE_ANON_KEY")
+
+async def supabase_request(method: str, path: str, *, json: Optional[dict] = None, headers: Optional[dict] = None):
+    supabase_url = resolve_supabase_url()
+    supabase_key = resolve_supabase_anon_key()
+    if not supabase_url or not supabase_key:
+        logger.error("Supabase não configurado.")
+        raise HTTPException(status_code=500, detail="Supabase não configurado.")
+
+    request_headers = {
+        "apikey": supabase_key,
+        "Content-Type": "application/json",
+    }
+    if headers:
+        request_headers.update(headers)
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+        response = await client.request(
+            method,
+            f"{supabase_url.rstrip('/')}{path}",
+            headers=request_headers,
+            json=json,
+        )
+
+    if response.status_code >= 400:
+        logger.error("Erro Supabase: status=%s body=%s", response.status_code, response.text)
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    if response.text:
+        return response.json()
+    return {}
+
 @app.on_event("startup")
 async def startup():
     database_url = resolve_database_url()
@@ -187,3 +250,82 @@ async def enviar_feedback(data: FeedbackRequest):
 
     logger.info("Sucesso /feedback")
     return {"status": "ok"}
+
+@app.post("/auth/register")
+async def registrar_usuario(data: RegisterRequest):
+    logger.info("Entrada /auth/register: email=%s", data.email)
+    payload = {
+        "email": data.email,
+        "password": data.senha,
+        "data": {
+            "nome": data.nome,
+            "endereco": data.endereco,
+            "colegio": data.colegio,
+            "foto_perfil": data.foto_perfil,
+        },
+    }
+    response = await supabase_request("POST", "/auth/v1/signup", json=payload)
+    logger.info("Sucesso /auth/register")
+    return response
+
+@app.post("/auth/verify-email")
+async def verificar_email(data: VerifyEmailRequest):
+    logger.info("Entrada /auth/verify-email: tipo=%s", data.tipo)
+    payload = {
+        "token": data.token,
+        "type": data.tipo,
+    }
+    response = await supabase_request("POST", "/auth/v1/verify", json=payload)
+    logger.info("Sucesso /auth/verify-email")
+    return response
+
+@app.post("/auth/login")
+async def login(data: LoginRequest):
+    logger.info("Entrada /auth/login: email=%s", data.email)
+    payload = {
+        "email": data.email,
+        "password": data.senha,
+    }
+    response = await supabase_request("POST", "/auth/v1/token?grant_type=password", json=payload)
+    logger.info("Sucesso /auth/login")
+    return response
+
+@app.post("/auth/change-password")
+async def alterar_senha(data: ChangePasswordRequest):
+    logger.info("Entrada /auth/change-password")
+    payload = {"password": data.nova_senha}
+    headers = {"Authorization": f"Bearer {data.access_token}"}
+    response = await supabase_request("PUT", "/auth/v1/user", json=payload, headers=headers)
+    logger.info("Sucesso /auth/change-password")
+    return response
+
+@app.put("/auth/profile")
+async def atualizar_perfil(data: UpdateProfileRequest):
+    logger.info("Entrada /auth/profile")
+    headers = {"Authorization": f"Bearer {data.access_token}"}
+    user = await supabase_request("GET", "/auth/v1/user", headers=headers)
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    updates = {
+        "nome": data.nome,
+        "endereco": data.endereco,
+        "colegio": data.colegio,
+        "foto_perfil": data.foto_perfil,
+    }
+    updates = {key: value for key, value in updates.items() if value is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nenhum dado para atualizar.")
+
+    response = await supabase_request(
+        "PATCH",
+        f"/rest/v1/profiles?id=eq.{user_id}",
+        json=updates,
+        headers={
+            **headers,
+            "Prefer": "return=representation",
+        },
+    )
+    logger.info("Sucesso /auth/profile")
+    return response
