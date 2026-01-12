@@ -402,6 +402,16 @@ async def alterar_senha(data: ChangePasswordRequest):
     logger.info("Sucesso /auth/change-password")
     return response
 
+@app.post("/auth/logout")
+async def logout(authorization: Optional[str] = Header(None)):
+    logger.info("Entrada /auth/logout")
+    access_token = extract_bearer_token(authorization)
+    headers = {"Authorization": f"Bearer {access_token}"}
+    logger.info("Encerrando sessão no Supabase.")
+    await supabase_request("POST", "/auth/v1/logout", headers=headers)
+    logger.info("Sucesso /auth/logout")
+    return {"status": "ok"}
+
 @app.get("/auth/me")
 async def obter_usuario_logado(authorization: Optional[str] = Header(None)):
     logger.info("Entrada /auth/me")
