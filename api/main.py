@@ -21,13 +21,26 @@ allow_origins = [
 ]
 
 def resolve_database_url() -> Optional[str]:
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        logger.info("Usando DATABASE_URL para conexão com banco.")
+        return database_url
+
+    supabase_db_url = os.getenv("SUPABASE_DB_URL")
+    if supabase_db_url:
+        logger.info("Usando SUPABASE_DB_URL para conexão com banco.")
+        return supabase_db_url
+
     supabase_url = os.getenv("SUPABASE_URL")
     if supabase_url:
-        logger.info("Usando SUPABASE_URL como DATABASE_URL.")
-        return supabase_url
+        logger.error("SUPABASE_URL possui esquema HTTP e não é compatível com o banco.")
+        raise HTTPException(
+            status_code=500,
+            detail="SUPABASE_URL inválida para banco. Configure DATABASE_URL ou SUPABASE_DB_URL.",
+        )
 
-    logger.error("SUPABASE_URL não configurada.")
-    raise HTTPException(status_code=500, detail="SUPABASE_URL não configurada.")
+    logger.error("DATABASE_URL não configurada.")
+    raise HTTPException(status_code=500, detail="DATABASE_URL não configurada.")
 
 app.add_middleware(
     CORSMiddleware,
