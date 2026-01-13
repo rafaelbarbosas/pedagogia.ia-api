@@ -366,6 +366,7 @@ async def registrar_usuario(data: RegisterRequest):
         },
     }
     logger.info("Registrando usuário no Supabase.")
+    logger.info("payload=%s", payload)
     response = await supabase_request("POST", "/auth/v1/signup", json=payload)
     logger.info("Sucesso /auth/register")
     return response
