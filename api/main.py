@@ -357,12 +357,12 @@ async def registrar_usuario(data: RegisterRequest):
     payload = {
         "email": data.email,
         "password": data.senha,
+        "email_redirect_to": data.email_redirect_to,
         "data": {
             "nome": data.nome,
             "endereco": data.endereco,
             "colegio": data.colegio,
-            "foto_perfil": data.foto_perfil,
-            "email_redirect_to": data.email_redirect_to
+            "foto_perfil": data.foto_perfil
         },
     }
     logger.info("Registrando usuário no Supabase.")
