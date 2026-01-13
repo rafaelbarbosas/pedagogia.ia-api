@@ -68,6 +68,7 @@ class RegisterRequest(BaseModel):
     endereco: Optional[str] = None
     colegio: Optional[str] = None
     foto_perfil: Optional[str] = None
+    email_redirect_to: str = ""
 
 class VerifyEmailRequest(BaseModel):
     token: str
@@ -361,6 +362,7 @@ async def registrar_usuario(data: RegisterRequest):
             "endereco": data.endereco,
             "colegio": data.colegio,
             "foto_perfil": data.foto_perfil,
+            "email_redirect_to": data.email_redirect_to
         },
     }
     logger.info("Registrando usuário no Supabase.")
